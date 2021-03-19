@@ -13,6 +13,8 @@ require "resque/kubernetes/jobs_manager"
 require "resque/kubernetes/manifest_conformance"
 require "resque/kubernetes/retriable_client"
 require "resque/kubernetes/version"
+require "resque/kubernetes/client"
+require "resque/kubernetes/pre_jobs_handler"
 
 module Resque
   # Run Resque Jobs as Kubernetes Jobs with autoscaling.
