@@ -78,7 +78,23 @@ module Resque
     module Job
       def self.included(base)
         return unless base.respond_to?(:before_enqueue)
+        base.before_enqueue :process_before_job_hooks
         base.before_enqueue :before_enqueue_kubernetes_job
+      end
+
+      # Define a list of pre-job hooks that require processing by kubeclient
+      def self.pre_job_manifests(*args)
+        raise NotImplementedError unless args.is_a?(Array)
+        @pre_manifests ||= []
+        @pre_manifests += args
+      end
+
+      def process_before_job_hooks(*_args)
+        return unless Resque::Kubernetes.enabled
+        return unless @pre_manifests
+
+        pre_job_handler = PreJobHandler.new(self, @pre_manifests)
+        pre_job_handler.process
       end
 
       # A before_enqueue hook that adds worker jobs to the cluster.
