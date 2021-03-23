@@ -41,7 +41,7 @@ module Resque
       end
 
       def ensure_namespace(manifest)
-        manifest["metadata"]["namespace"] ||= @default_namespace
+        manifest["metadata"]["namespace"] ||= default_namespace
       end
 
       def update_job_name(manifest)

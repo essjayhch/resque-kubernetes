@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "kubeclient"
+require "forwardable"
 
 require_relative "manifest_conformance"
 
@@ -9,19 +10,22 @@ module Resque
     # Spins up Kubernetes Jobs to run Resque workers.
     class JobsManager
       include Resque::Kubernetes::ManifestConformance
+      extend Forwardable
 
-      attr_reader :owner
-      private :owner
+      def_delegators :client, :jobs_client, :pods_client, :default_namespace
+
+      attr_reader :owner, :client
+      private :owner, :client
 
       def initialize(owner)
-        @owner             = owner
-        @default_namespace = "default"
+        @owner  = owner
+        @client = Resque::Kubernetes::Client.new
       end
 
       def reap_finished_jobs
         finished_jobs.each do |job|
           begin
-            Client.jobs_client.delete_job(job.metadata.name, job.metadata.namespace)
+            jobs_client.delete_job(job.metadata.name, job.metadata.namespace)
           rescue KubeException => e
             raise unless e.error_code == 404
           end
@@ -31,7 +35,7 @@ module Resque
       def reap_finished_pods
         finished_pods.each do |pod|
           begin
-            Client.pods_client.delete_pod(pod.metadata.name, pod.metadata.namespace)
+            pods_client.delete_pod(pod.metadata.name, pod.metadata.namespace)
           rescue KubeException => e
             raise unless e.error_code == 404
           end
@@ -48,18 +52,18 @@ module Resque
         adjust_manifest(manifest)
 
         job = Kubeclient::Resource.new(manifest)
-        Client.jobs_client.create_job(job)
+        jobs_client.create_job(job)
       end
 
       private
 
       def finished_jobs
-        resque_jobs = Client.jobs_client.get_jobs(label_selector: "resque-kubernetes=job")
+        resque_jobs = jobs_client.get_jobs(label_selector: "resque-kubernetes=job")
         resque_jobs.select { |job| job.spec.completions == job.status.succeeded }
       end
 
       def finished_pods
-        resque_jobs = Client.pods_client.get_pods(label_selector: "resque-kubernetes=pod")
+        resque_jobs = pods_client.get_pods(label_selector: "resque-kubernetes=pod")
         resque_jobs.select do |pod|
           pod.status.phase == "Succeeded" && pod.status.containerStatuses.all? do |status|
             status.state.terminated.reason == "Completed"
@@ -68,7 +72,7 @@ module Resque
       end
 
       def jobs_maxed?(name, namespace)
-        resque_jobs = Client.jobs_client.get_jobs(
+        resque_jobs = jobs_client.get_jobs(
             label_selector: "resque-kubernetes=job,resque-kubernetes-group=#{name}",
             namespace:      namespace
         )

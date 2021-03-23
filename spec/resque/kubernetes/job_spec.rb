@@ -10,6 +10,27 @@ describe Resque::Kubernetes::Job do
       default_manifest
     end
 
+    def self.real_job_wo_kind
+      {
+          "api"      => "kubernetes.resque.int/api/fake",
+          "metadata" => {"name" => "thing"},
+          "spec"     => {
+
+          }
+      }
+    end
+
+    def self.real_job
+      {
+          "api"      => "kubernetes.resque.int/api/fake",
+          "kind"     => "FakeResource",
+          "metadata" => {"name" => "thing"},
+          "spec"     => {
+
+          }
+      }
+    end
+
     def self.default_manifest
       {
           "metadata" => {"name" => "thing"},
@@ -27,6 +48,27 @@ describe Resque::Kubernetes::Job do
 
     def job_manifest
       default_manifest
+    end
+
+    def real_job_wo_kind
+      {
+          "api"      => "kubernetes.resque.int/api/fake",
+          "metadata" => {"name" => "thing"},
+          "spec"     => {
+
+          }
+      }
+    end
+
+    def real_job
+      {
+          "api"      => "kubernetes.resque.int/api/fake",
+          "kind"     => "FakeResource",
+          "metadata" => {"name" => "thing"},
+          "spec"     => {
+
+          }
+      }
     end
 
     def default_manifest
@@ -90,7 +132,7 @@ describe Resque::Kubernetes::Job do
         end
 
         it "calls kubernetes APIs" do
-          expect_any_instance_of(Resque::Kubernetes::JobsManager).to receive(:client).at_least(:once) do
+          expect_any_instance_of(Resque::Kubernetes::Client).to receive(:client).at_least(:once) do
             client
           end
           subject.before_enqueue_kubernetes_job
@@ -103,7 +145,7 @@ describe Resque::Kubernetes::Job do
         end
 
         it "does not make any kubernetes calls" do
-          expect_any_instance_of(Resque::Kubernetes::JobsManager).not_to receive(:client)
+          expect_any_instance_of(Resque::Kubernetes::Client).not_to receive(:client)
           subject.before_enqueue_kubernetes_job
         end
       end
@@ -397,6 +439,83 @@ describe Resque::Kubernetes::Job do
           end
 
         end
+      end
+
+      shared_examples "pre-job-manifest" do
+        let(:job) { double(:job) }
+        around(:each) do |example|
+          subject.class.pre_job_manifests pre_jobs
+          example.run
+          subject.class.pre_job_manifests []
+        end
+
+        context "when job has a pre-job manifest defined" do
+          context "wjen the job does not have a 'kind' attribtue set" do
+            let(:pre_jobs) { [:real_job_wo_kind] }
+
+            it "attempts to call the job included but raises arguement error" do
+              expect(subject).to receive(:real_job_wo_kind).and_call_original
+              expect { subject.before_enqueue_kubernetes_job }.to raise_exception(ArgumentError)
+            end
+          end
+
+          context "when the job has a 'kind' attribute set" do
+            let(:pre_jobs) { [:real_job] }
+
+            it "attempts to call the job included via the hook" do
+              expect(subject).to receive(:real_job).and_call_original
+              expect { subject.before_enqueue_kubernetes_job }.to_not raise_exception
+            end
+          end
+        end
+
+        context "when job has not got a pre-job manifest defined" do
+          let(:pre_jobs) { [:no_job] }
+          it "attempts to call jobs included via the hook" do
+            expect(subject).to receive(:no_job).and_raise(StandardError)
+            expect { subject.before_enqueue_kubernetes_job }.to raise_exception(StandardError)
+          end
+        end
+
+        context "when the namespace is not included with the manifest" do
+          let(:pre_jobs) { [:real_job] }
+          context "and no value is provided by the authentication context" do
+            it "sets it to 'default'" do
+              manifest = hash_including(
+                  "api"      => "kubernetes.resque.int/api/fake",
+                  "metadata" => hash_including(
+                      "namespace" => "default"
+                  )
+              )
+              expect(Kubeclient::Resource).to receive(:new).with(manifest).and_return(job)
+              subject.before_enqueue_kubernetes_job
+            end
+          end
+        end
+
+        context "when job has a namespace set" do
+          let(:pre_jobs) { [:real_job] }
+          before do
+            manifest = subject.real_job.dup
+            manifest["metadata"]["namespace"] = "staging"
+            allow(subject).to receive(:real_job).and_return(manifest)
+          end
+
+          it "retains it" do
+            manifest = hash_including(
+                "api"      => "kubernetes.resque.int/api/fake",
+                "metadata" => hash_including(
+                    "namespace" => "staging"
+                )
+            )
+            expect(Kubeclient::Resource).to receive(:new).with(manifest).and_return(job)
+            subject.before_enqueue_kubernetes_job
+          end
+        end
+      end
+
+      context "for pre-job manifest" do
+        include_examples "pre-job-manifest"
       end
 
       context "for the gem-global max_workers setting" do

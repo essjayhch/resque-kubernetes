@@ -4,17 +4,25 @@ module Resque
   module Kubernetes
     # Centralised opbject for cleint storage
     class Client
-      def self.jobs_client
-        @jobs_client ||= new.client("/apis/batch")
+      attr_accessor :default_namespace
+
+      def initialize
+        @default_namespace = "default"
       end
 
-      def self.pods_client
-        @pods_client ||= new.client("")
+      def jobs_client
+        client("/apis/batch")
       end
 
-      def self.misc_client
-        @misc_client ||= new.client("")
+      def pods_client
+        client("")
       end
+
+      def misc_client
+        client("")
+      end
+
+      private
 
       def client(scope)
         return RetriableClient.new(Resque::Kubernetes.kubeclient) if Resque::Kubernetes.kubeclient

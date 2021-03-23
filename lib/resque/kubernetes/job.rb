@@ -77,30 +77,31 @@ module Resque
     #     end
     module Job
       def self.included(base)
+        base.class.send(:define_method, :pre_manifests) do
+          @pre_manifests
+        end
+
+        base.class.send(:define_method, :pre_job_manifests) do |hooks|
+          raise NotImplementedError unless hooks.is_a?(Array) || hooks.is_nil?
+          @pre_manifests = hooks
+        end
+
         return unless base.respond_to?(:before_enqueue)
-        base.before_enqueue :process_before_job_hooks
+
         base.before_enqueue :before_enqueue_kubernetes_job
       end
 
-      # Define a list of pre-job hooks that require processing by kubeclient
-      def self.pre_job_manifests(*args)
-        raise NotImplementedError unless args.is_a?(Array)
-        @pre_manifests ||= []
-        @pre_manifests += args
-      end
-
       def process_before_job_hooks(*_args)
-        return unless Resque::Kubernetes.enabled
-        return unless @pre_manifests
-
-        pre_job_handler = PreJobHandler.new(self, @pre_manifests)
+        return unless self.class.pre_manifests
+        pre_job_handler = PreJobHandler.new(self, self.class.pre_manifests)
         pre_job_handler.process
       end
 
       # A before_enqueue hook that adds worker jobs to the cluster.
-      def before_enqueue_kubernetes_job(*_args)
+      def before_enqueue_kubernetes_job(*args)
         return unless Resque::Kubernetes.enabled
 
+        process_before_job_hooks(args)
         manager = JobsManager.new(self)
         manager.reap_finished_jobs
         manager.reap_finished_pods

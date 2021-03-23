@@ -1,18 +1,22 @@
 # frozen_string_literal: true
 
+require "forwardable"
 module Resque
   module Kubernetes
     # Handles manifests that need to be executed before running Jobs
     class PreJobHandler
       include Resque::Kubernetes::ManifestConformance
+      extend Forwardable
 
-      attr_reader :owner, :pre_manifests
+      attr_reader :owner, :pre_manifests, :client
       private :owner, :pre_manifests
+
+      def_delegators :client, :jobs_client, :pods_client, :misc_client, :default_namespace
 
       def initialize(owner, pre_manifests)
         @owner = owner
-        @default_namespace = "default"
         @pre_manifests = pre_manifests
+        @client = Resque::Kubernetes::Client.new
       end
 
       def process
@@ -21,14 +25,15 @@ module Resque
           ensure_namespace(manifest)
 
           resource = Kubeclient::Resource.new(manifest)
-          Client.misc_client.send("create_#{type(manifest)}".to_sym, resource)
+          misc_client.send(create_type(manifest).to_sym, resource)
         end
       end
 
       private
 
-      def type(manifest)
-        manifest[:kind].to_lower
+      def create_type(manifest)
+        raise ArgumentError.new "missing manifest key :kind" unless manifest["kind"]
+        "create_#{manifest['kind'].downcase}"
       end
     end
   end
